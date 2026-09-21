@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 antialiased p-5">
+  <div class="max-w-2xl mx-auto bg-white border border-gray-300 rounded-xl p-5 shadow-sm">
+    <h2 class="text-xl font-bold mb-1">Signature to Cobot Recorder</h2>
+    <p class="text-gray-600 text-sm mb-4">Draw your signature below. Tap "Download G-Code" to save the file to your device, then send it to the robot operator!</p>
+    
+    <div class="mb-4">
+        <canvas id="canvas" width="600" height="250" class="w-full bg-white border border-gray-300 rounded-md cursor-crosshair touch-none" style="max-width: 600px; height: 250px;"></canvas>
+    </div>
+    
+    <div class="flex gap-3 items-center">
+        <button id="clearBtn" class="px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors">Clear</button>
+        <button id="downloadBtn" class="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors">Download G-Code</button>
+        <span id="status" class="text-sm font-bold text-green-600 hidden ml-2">Downloaded successfully!</span>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const clearBtn = document.getElementById('clearBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const status = document.getElementById('status');
+    
+    let isDrawing = false;
+    let strokes = [];
+    let currentStroke = [];
+    
+    const SCALE = 150.0 / 600.0; 
+    
+    function getMousePos(e) {
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return {
+        x: clientX - rect.left,
+        y: clientY - rect.top
+      };
+    }
+    
+    function startPosition(e) {
+      e.preventDefault();
+      isDrawing = true;
+      const pos = getMousePos(e);
+      currentStroke = [pos];
+      
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 1, 0, Math.PI*2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+    }
+    
+    function endPosition() {
+      if (!isDrawing) return;
+      isDrawing = false;
+      ctx.beginPath();
+      if (currentStroke.length > 0) {
+        strokes.push(currentStroke);
+      }
+      currentStroke = [];
+    }
+    
+    function draw(e) {
+      if (!isDrawing) return;
+      e.preventDefault();
+      
+      const pos = getMousePos(e);
+      currentStroke.push(pos);
+      
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#000';
+      
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+    }
+    
+    canvas.addEventListener('mousedown', startPosition);
+    canvas.addEventListener('mouseup', endPosition);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseleave', endPosition);
+    
+    canvas.addEventListener('touchstart', startPosition, {passive: false});
+    canvas.addEventListener('touchend', endPosition, {passive: false});
+    canvas.addEventListener('touchmove', draw, {passive: false});
+    
+    clearBtn.addEventListener('click', () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      strokes = [];
+      status.classList.add('hidden');
+      status.innerText = "Sent successfully!";
+      status.classList.remove('text-red-600');
+      status.classList.add('text-green-600');
+    });
+    
+    function smoothPath(path, windowSize=3) {
+      if (path.length < windowSize) return path;
+      let smoothed = [];
+      for (let i = 0; i < path.length; i++) {
+        let start = Math.max(0, i - Math.floor(windowSize/2));
+        let end = Math.min(path.length, i + Math.floor(windowSize/2) + 1);
+        let sumX = 0;
+        let sumY = 0;
+        for (let j = start; j < end; j++) {
+            sumX += path[j].x;
+            sumY += path[j].y;
+        }
+        smoothed.push({
+            x: sumX / (end - start),
+            y: sumY / (end - start)
+        });
+      }
+      return smoothed;
+    }
+    
+    function subsample(path, minDist=2.0) {
+      if (path.length < 2) return path;
+      let res = [path[0]];
+      let lastPt = path[0];
+      for (let i = 1; i < path.length; i++) {
+        let pt = path[i];
+        let dx = pt.x - lastPt.x;
+        let dy = pt.y - lastPt.y;
+        if (Math.hypot(dx, dy) >= minDist) {
+            res.push(pt);
+            lastPt = pt;
+        }
+      }
+      if (res[res.length-1] !== path[path.length-1]) {
+          res.push(path[path.length-1]);
+      }
+      return res;
+    }
+
+    downloadBtn.addEventListener('click', async () => {
+      if (strokes.length === 0) {
+          alert('Please draw something first!');
+          return;
+      }
+      
+      const DRAW_Z = -23.0;
+      const LIFT_Z = -20.0;
+      const APPROACH_Z = -18.0;
+      const HOME_Z = 5.0;
+      const DRAW_F = 2000.0;
+      const PLUNGE_F = 100.0;
+      
+      const TARGET_H = 250 * SCALE;
+      
+      let gcode = [];
+      gcode.push(`G00 Z${HOME_Z.toFixed(3)}`);
+      
+      for (let i = 0; i < strokes.length; i++) {
+          let s = strokes[i];
+          s = smoothPath(s, 5); 
+          s = subsample(s, 3.0); 
+          if (s.length < 2) continue;
+          
+          let rx0 = s[0].x * SCALE;
+          let ry0 = TARGET_H - (s[0].y * SCALE); 
+          
+          gcode.push(`G00 X${rx0.toFixed(3)} Y${ry0.toFixed(3)}`);
+          if (i === 0) {
+              gcode.push(`G00 Z${APPROACH_Z.toFixed(3)}`);
+          }
+          gcode.push(`G01 Z${DRAW_Z.toFixed(3)} F${PLUNGE_F.toFixed(1)}`);
+          
+          for (let j = 1; j < s.length; j++) {
+              let rx = s[j].x * SCALE;
+              let ry = TARGET_H - (s[j].y * SCALE);
+              gcode.push(`G01 X${rx.toFixed(3)} Y${ry.toFixed(3)} F${DRAW_F.toFixed(1)}`);
+          }
+          gcode.push(`G00 Z${LIFT_Z.toFixed(3)}`);
+      }
+      
+      gcode.push(`G00 Z${APPROACH_Z.toFixed(3)}`);
+      gcode.push(`G00 Z${HOME_Z.toFixed(3)}`);
+      gcode.push(`G00 X0.000 Y0.000`);
+      
+      const gcodeStr = gcode.join('\n');
+      
+      // Standalone Download Mechanism
+      const blob = new Blob([gcodeStr], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'signature_live.gcode';
+      document.body.appendChild(a);
+      a.click();
+      
+      // Clean up
+      setTimeout(() => {
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+          status.innerText = "Downloaded successfully!";
+          status.classList.remove('hidden');
+      }, 100);
+    });
+  </script>
+</body>
+</html>
