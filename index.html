@@ -6,17 +6,17 @@
 <body class="bg-gray-100 text-gray-900 antialiased p-5">
   <div class="max-w-2xl mx-auto bg-white border border-gray-300 rounded-xl p-5 shadow-sm">
     <h2 class="text-xl font-bold mb-1">Signature to Cobot Recorder</h2>
-    <p class="text-gray-600 text-sm mb-4">Draw your signature below. Tap a button to save the file for the specific robot, then send it to the Telegram bot!</p>
+    <p class="text-gray-600 text-sm mb-4">Draw your signature below and choose which robot will draw it!</p>
     
     <div class="mb-4">
         <canvas id="canvas" width="600" height="250" class="w-full bg-white border border-gray-300 rounded-md cursor-crosshair touch-none" style="max-width: 600px; height: 250px;"></canvas>
     </div>
     
-    <div class="flex gap-3 items-center flex-wrap">
+    <div class="flex flex-wrap gap-3 items-center">
         <button id="clearBtn" class="px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors">Clear</button>
-        <button id="downloadR1Btn" class="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors">Send to Robot 1</button>
-        <button id="downloadR2Btn" class="px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-sm font-medium transition-colors">Send to Robot 2</button>
-        <span id="status" class="text-sm font-bold text-green-600 hidden ml-2">Downloaded successfully!</span>
+        <button id="btnR1" class="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors">Send to Robot 1</button>
+        <button id="btnR2" class="px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-sm font-medium transition-colors">Send to Robot 2</button>
+        <span id="status" class="text-sm font-bold text-green-600 hidden ml-2">Sent successfully!</span>
     </div>
   </div>
 
@@ -24,8 +24,8 @@
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const clearBtn = document.getElementById('clearBtn');
-    const downloadR1Btn = document.getElementById('downloadR1Btn');
-    const downloadR2Btn = document.getElementById('downloadR2Btn');
+    const btnR1 = document.getElementById('btnR1');
+    const btnR2 = document.getElementById('btnR2');
     const status = document.getElementById('status');
     
     let isDrawing = false;
@@ -33,6 +33,9 @@
     let currentStroke = [];
     
     const SCALE = 150.0 / 600.0; 
+    const BOT_TOKEN = "8101041941:AAGKYlyJ6s4-BzkQL6q6DQj5VnRFu0SilBI";
+    const CHAT_ID = "1466832113";
+    const SHARED_RELAY_URL = "https://ntfy.sh/cobot_sig_relay_R2_572910";
     
     function getMousePos(e) {
       const rect = canvas.getBoundingClientRect();
@@ -143,7 +146,7 @@
       return res;
     }
 
-    function downloadGcode(filename) {
+    async function sendSignature(robotNum, btn) {
       if (strokes.length === 0) {
           alert('Please draw something first!');
           return;
@@ -155,7 +158,6 @@
       const HOME_Z = 5.0;
       const DRAW_F = 2000.0;
       const PLUNGE_F = 100.0;
-      
       const TARGET_H = 250 * SCALE;
       
       let gcode = [];
@@ -190,27 +192,50 @@
       
       const gcodeStr = gcode.join('\n');
       
-      // Standalone Download Mechanism
+      const originalText = btn.innerText;
+      btn.innerText = "Sending...";
+      btnR1.disabled = true;
+      btnR2.disabled = true;
+
+      const fileName = `${robotNum}_signature.gcode`;
+      const formData = new FormData();
+      formData.append('chat_id', CHAT_ID);
+      formData.append('caption', `🖋️ New signature from: ${robotNum} (Sent to Robot ${robotNum})`);
       const blob = new Blob([gcodeStr], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      
-      // Clean up
-      setTimeout(() => {
-          document.body.removeChild(a);
-          window.URL.revokeObjectURL(url);
-          status.innerText = `Downloaded ${filename} successfully!`;
-          status.classList.remove('hidden');
-          // Signature is explicitly NOT cleared here so it stays on screen
-      }, 100);
+      formData.append('document', blob, fileName);
+
+      try {
+          // 1. Send to Telegram
+          await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, { method: 'POST', body: formData });
+          
+          // 2. Send to shared invisible Relay Server
+          const relayResponse = await fetch(SHARED_RELAY_URL, {
+              method: 'PUT',
+              body: blob,
+              headers: { 'Filename': fileName }
+          });
+          
+          if (relayResponse.ok) {
+              status.innerText = `Sent to Robot ${robotNum} successfully!`;
+              status.classList.remove('hidden', 'text-red-600');
+              status.classList.add('text-green-600');
+              // Drawing explicitly NOT cleared!
+          } else {
+              throw new Error('Relay API error');
+          }
+      } catch (err) {
+          status.innerText = "Error: Could not send message.";
+          status.classList.remove('hidden', 'text-green-600');
+          status.classList.add('text-red-600');
+      } finally {
+          btn.innerText = originalText;
+          btnR1.disabled = false;
+          btnR2.disabled = false;
+      }
     }
 
-    downloadR1Btn.addEventListener('click', () => downloadGcode('1_signature.gcode'));
-    downloadR2Btn.addEventListener('click', () => downloadGcode('2_signature.gcode'));
+    btnR1.addEventListener('click', () => sendSignature(1, btnR1));
+    btnR2.addEventListener('click', () => sendSignature(2, btnR2));
   </script>
 </body>
 </html>
