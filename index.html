@@ -6,24 +6,17 @@
 <body class="bg-gray-100 text-gray-900 antialiased p-5">
   <div class="max-w-2xl mx-auto bg-white border border-gray-300 rounded-xl p-5 shadow-sm">
     <h2 class="text-xl font-bold mb-1">Signature to Cobot Recorder</h2>
-    <p class="text-gray-600 text-sm mb-4">Draw your signature below and choose which robot will draw it!</p>
+    <p class="text-gray-600 text-sm mb-4">Draw your signature below. Tap a button to save the file for the specific robot, then send it to the Telegram bot!</p>
     
     <div class="mb-4">
         <canvas id="canvas" width="600" height="250" class="w-full bg-white border border-gray-300 rounded-md cursor-crosshair touch-none" style="max-width: 600px; height: 250px;"></canvas>
     </div>
     
-    <div class="mb-5">
-        <label for="signerName" class="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
-        <input type="text" id="signerName" placeholder="Enter your name..." class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-    </div>
-    
-    <div class="flex flex-wrap gap-3 items-center">
+    <div class="flex gap-3 items-center flex-wrap">
         <button id="clearBtn" class="px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors">Clear</button>
-        <button id="sendR1Btn" class="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors">Send to Robot 1</button>
-        <button id="sendR2Btn" class="px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-sm font-medium transition-colors">Send to Robot 2</button>
-    </div>
-    <div class="mt-3">
-        <span id="status" class="text-sm font-bold text-green-600 hidden">Sent successfully!</span>
+        <button id="downloadR1Btn" class="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors">Send to Robot 1</button>
+        <button id="downloadR2Btn" class="px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-sm font-medium transition-colors">Send to Robot 2</button>
+        <span id="status" class="text-sm font-bold text-green-600 hidden ml-2">Downloaded successfully!</span>
     </div>
   </div>
 
@@ -31,10 +24,9 @@
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const clearBtn = document.getElementById('clearBtn');
-    const btnR1 = document.getElementById('sendR1Btn');
-    const btnR2 = document.getElementById('sendR2Btn');
+    const downloadR1Btn = document.getElementById('downloadR1Btn');
+    const downloadR2Btn = document.getElementById('downloadR2Btn');
     const status = document.getElementById('status');
-    const nameInput = document.getElementById('signerName');
     
     let isDrawing = false;
     let strokes = [];
@@ -46,7 +38,10 @@
       const rect = canvas.getBoundingClientRect();
       const clientX = e.touches ? e.touches[0].clientX : e.clientX;
       const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-      return { x: clientX - rect.left, y: clientY - rect.top };
+      return {
+        x: clientX - rect.left,
+        y: clientY - rect.top
+      };
     }
     
     function startPosition(e) {
@@ -70,15 +65,24 @@
       if (!isDrawing) return;
       isDrawing = false;
       ctx.beginPath();
-      if (currentStroke.length > 0) strokes.push(currentStroke);
+      if (currentStroke.length > 0) {
+        strokes.push(currentStroke);
+      }
       currentStroke = [];
     }
     
     function draw(e) {
       if (!isDrawing) return;
       e.preventDefault();
+      
       const pos = getMousePos(e);
       currentStroke.push(pos);
+      
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#000';
+      
       ctx.lineTo(pos.x, pos.y);
       ctx.stroke();
       ctx.beginPath();
@@ -89,6 +93,7 @@
     canvas.addEventListener('mouseup', endPosition);
     canvas.addEventListener('mousemove', draw);
     canvas.addEventListener('mouseleave', endPosition);
+    
     canvas.addEventListener('touchstart', startPosition, {passive: false});
     canvas.addEventListener('touchend', endPosition, {passive: false});
     canvas.addEventListener('touchmove', draw, {passive: false});
@@ -105,9 +110,16 @@
       for (let i = 0; i < path.length; i++) {
         let start = Math.max(0, i - Math.floor(windowSize/2));
         let end = Math.min(path.length, i + Math.floor(windowSize/2) + 1);
-        let sumX = 0, sumY = 0;
-        for (let j = start; j < end; j++) { sumX += path[j].x; sumY += path[j].y; }
-        smoothed.push({ x: sumX / (end - start), y: sumY / (end - start) });
+        let sumX = 0;
+        let sumY = 0;
+        for (let j = start; j < end; j++) {
+            sumX += path[j].x;
+            sumY += path[j].y;
+        }
+        smoothed.push({
+            x: sumX / (end - start),
+            y: sumY / (end - start)
+        });
       }
       return smoothed;
     }
@@ -117,90 +129,88 @@
       let res = [path[0]];
       let lastPt = path[0];
       for (let i = 1; i < path.length; i++) {
-        let dx = path[i].x - lastPt.x, dy = path[i].y - lastPt.y;
-        if (Math.hypot(dx, dy) >= minDist) { res.push(path[i]); lastPt = path[i]; }
+        let pt = path[i];
+        let dx = pt.x - lastPt.x;
+        let dy = pt.y - lastPt.y;
+        if (Math.hypot(dx, dy) >= minDist) {
+            res.push(pt);
+            lastPt = pt;
+        }
       }
-      if (res[res.length-1] !== path[path.length-1]) res.push(path[path.length-1]);
+      if (res[res.length-1] !== path[path.length-1]) {
+          res.push(path[path.length-1]);
+      }
       return res;
     }
 
-    async function sendSignature(robotNum, relayUrl, btn) {
-      const signerName = nameInput.value.trim();
+    function downloadGcode(filename) {
+      if (strokes.length === 0) {
+          alert('Please draw something first!');
+          return;
+      }
       
-      if (strokes.length === 0) { alert('Please draw a signature first!'); return; }
-      if (!signerName) { alert('Please enter your name!'); nameInput.focus(); return; }
+      const DRAW_Z = -23.0;
+      const LIFT_Z = -20.0;
+      const APPROACH_Z = -18.0;
+      const HOME_Z = 5.0;
+      const DRAW_F = 2000.0;
+      const PLUNGE_F = 100.0;
       
       const TARGET_H = 250 * SCALE;
+      
       let gcode = [];
-      gcode.push(`G00 Z5.000`);
+      gcode.push(`G00 Z${HOME_Z.toFixed(3)}`);
       
       for (let i = 0; i < strokes.length; i++) {
-          let s = subsample(smoothPath(strokes[i], 5), 3.0); 
+          let s = strokes[i];
+          s = smoothPath(s, 5); 
+          s = subsample(s, 3.0); 
           if (s.length < 2) continue;
           
-          gcode.push(`G00 X${(s[0].x * SCALE).toFixed(3)} Y${(TARGET_H - (s[0].y * SCALE)).toFixed(3)}`);
-          if (i === 0) gcode.push(`G00 Z-18.000`);
-          gcode.push(`G01 Z-23.000 F100.0`);
+          let rx0 = s[0].x * SCALE;
+          let ry0 = TARGET_H - (s[0].y * SCALE); 
+          
+          gcode.push(`G00 X${rx0.toFixed(3)} Y${ry0.toFixed(3)}`);
+          if (i === 0) {
+              gcode.push(`G00 Z${APPROACH_Z.toFixed(3)}`);
+          }
+          gcode.push(`G01 Z${DRAW_Z.toFixed(3)} F${PLUNGE_F.toFixed(1)}`);
           
           for (let j = 1; j < s.length; j++) {
-              gcode.push(`G01 X${(s[j].x * SCALE).toFixed(3)} Y${(TARGET_H - (s[j].y * SCALE)).toFixed(3)} F2000.0`);
+              let rx = s[j].x * SCALE;
+              let ry = TARGET_H - (s[j].y * SCALE);
+              gcode.push(`G01 X${rx.toFixed(3)} Y${ry.toFixed(3)} F${DRAW_F.toFixed(1)}`);
           }
-          gcode.push(`G00 Z-20.000`);
+          gcode.push(`G00 Z${LIFT_Z.toFixed(3)}`);
       }
-      gcode.push(`G00 Z-18.000\nG00 Z5.000\nG00 X0.000 Y0.000`);
+      
+      gcode.push(`G00 Z${APPROACH_Z.toFixed(3)}`);
+      gcode.push(`G00 Z${HOME_Z.toFixed(3)}`);
+      gcode.push(`G00 X0.000 Y0.000`);
       
       const gcodeStr = gcode.join('\n');
       
-      // --- SETTINGS ---
-      const BOT_TOKEN = "8101041941:AAGKYlyJ6s4-BzkQL6q6DQj5VnRFu0SilBI";
-      const CHAT_ID = "1466832113";
-      
-      const originalText = btn.innerText;
-      btn.innerText = `Sending to R${robotNum}...`;
-      btnR1.disabled = true;
-      btnR2.disabled = true;
-
-      const safeName = signerName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      const formData = new FormData();
-      formData.append('chat_id', CHAT_ID);
-      formData.append('caption', `🖊️ New signature from: ${signerName} (Sent to Robot ${robotNum})`);
+      // Standalone Download Mechanism
       const blob = new Blob([gcodeStr], { type: 'text/plain' });
-      formData.append('document', blob, `${safeName}_signature.gcode`);
-
-      try {
-          // 1. Send to Telegram
-          await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, { method: 'POST', body: formData });
-          
-          // 2. Send to specific invisible Relay Server
-          const relayResponse = await fetch(relayUrl, {
-              method: 'PUT',
-              body: blob,
-              headers: { 'Filename': `${safeName}_signature.gcode` }
-          });
-          
-          if (relayResponse.ok) {
-              status.innerText = `Sent to Robot ${robotNum} successfully!`;
-              status.classList.remove('hidden', 'text-red-600');
-              status.classList.add('text-green-600');
-              nameInput.value = '';
-              strokes = [];
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-          } else {
-              throw new Error('Relay API error');
-          }
-      } catch (err) {
-          status.innerText = "Error: Could not send message.";
-          status.classList.remove('hidden', 'text-green-600');
-          status.classList.add('text-red-600');
-      } finally {
-          btn.innerText = originalText;
-          btnR1.disabled = false;
-          btnR2.disabled = false;
-      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      
+      // Clean up
+      setTimeout(() => {
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+          status.innerText = `Downloaded ${filename} successfully!`;
+          status.classList.remove('hidden');
+          // Signature is explicitly NOT cleared here so it stays on screen
+      }, 100);
     }
 
-    btnR1.addEventListener('click', () => sendSignature(1, 'https://ntfy.sh/cobot_sig_relay_847291', btnR1));
-    btnR2.addEventListener('click', () => sendSignature(2, 'https://ntfy.sh/cobot_sig_relay_R2_572910', btnR2));
+    downloadR1Btn.addEventListener('click', () => downloadGcode('1_signature.gcode'));
+    downloadR2Btn.addEventListener('click', () => downloadGcode('2_signature.gcode'));
   </script>
 </body>
 </html>
