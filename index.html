@@ -6,7 +6,7 @@
 <body class="bg-gray-100 text-gray-900 antialiased p-5">
   <div class="max-w-2xl mx-auto bg-white border border-gray-300 rounded-xl p-5 shadow-sm">
     <h2 class="text-xl font-bold mb-1">Signature to Cobot Recorder</h2>
-    <p class="text-gray-600 text-sm mb-4">Draw your signature below and choose which robot will draw it!</p>
+    <p class="text-gray-600 text-sm mb-4">Draw your signature on the line below. Tap a button to save the file for the specific robot, then send it to the Telegram bot!</p>
     
     <div class="mb-4">
         <canvas id="canvas" width="600" height="250" class="w-full bg-white border border-gray-300 rounded-md cursor-crosshair touch-none" style="max-width: 600px; height: 250px;"></canvas>
@@ -36,6 +36,23 @@
     const BOT_TOKEN = "8101041941:AAGKYlyJ6s4-BzkQL6q6DQj5VnRFu0SilBI";
     const CHAT_ID = "1466832113";
     const SHARED_RELAY_URL = "https://ntfy.sh/cobot_sig_relay_R2_572910";
+    
+    // Draw the initial dashed guide line
+    function drawGuideLine() {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.strokeStyle = "#d1d5db"; // Light gray
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 8]); // Dashed line
+        ctx.beginPath();
+        ctx.moveTo(0, 200); // The line is 50 pixels from the bottom
+        ctx.lineTo(600, 200);
+        ctx.stroke();
+        ctx.setLineDash([]); // Reset to solid for drawing
+    }
+    
+    drawGuideLine();
     
     function getMousePos(e) {
       const rect = canvas.getBoundingClientRect();
@@ -102,7 +119,7 @@
     canvas.addEventListener('touchmove', draw, {passive: false});
     
     clearBtn.addEventListener('click', () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawGuideLine();
       strokes = [];
       status.classList.add('hidden');
     });
